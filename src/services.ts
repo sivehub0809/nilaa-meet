@@ -213,7 +213,7 @@ export const meetingService = {
     await videoProviderService.issueToken(providerId, slug, user.name);
 
     const isAuth = user.isAuthenticated;
-    const meeting = {
+    const meeting: MeetingSession = {
       id: slug,
       roomName: draft.roomInput || "Instant Meeting",
       inviteLink: `${getPublicOrigin()}?room=${slug}`,
@@ -273,7 +273,7 @@ export const meetingService = {
     }
 
     if (meeting.accessMode === "approval") {
-      const updated = saveRoom({
+      const updated: MeetingSession = saveRoom({
         ...meeting,
         joinRequests: meeting.joinRequests.some((request) => request.id === user.id)
           ? meeting.joinRequests
@@ -295,7 +295,7 @@ export const meetingService = {
       });
     }
 
-    const updated = saveRoom({
+    const updated: MeetingSession = saveRoom({
       ...meeting,
       participants: meeting.participants.some((participant) => participant.id === user.id)
         ? meeting.participants
