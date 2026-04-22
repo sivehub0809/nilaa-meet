@@ -1,4 +1,5 @@
 import { Locale } from "./types";
+import { appConfig } from "./config";
 
 export const copy = {
   en: {
@@ -155,5 +156,5 @@ export const detectInitialLocale = (): Locale => {
     return "km";
   }
 
-  return "en";
+  return appConfig.defaultLocale;
 };

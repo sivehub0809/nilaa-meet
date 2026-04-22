@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { appConfig } from "./config";
 import { copy, detectInitialLocale } from "./i18n";
 import { AppTopBar, DashboardScreen, MeetingRoom, MeetingSetupCard, SummaryScreen } from "./components";
 import { initialChat, initialTranscript } from "./mockData";
@@ -208,7 +209,7 @@ export function App() {
       {screen === "landing" && (
         <main className="landing-layout">
           <section className="hero-card">
-            <div className="section-kicker">Cambodia-ready meeting flow</div>
+            <div className="section-kicker">{appConfig.appName}</div>
             <h1>{t.headline}</h1>
             <p>{t.support}</p>
             <div className="hero-actions">
@@ -260,7 +261,7 @@ export function App() {
             </div>
             <div className="trust-row">
               <span>{t.noSettings}</span>
-              <span>{t.providerNote}</span>
+              <span>{appConfig.appName} · {t.providerNote}</span>
             </div>
           </section>
 

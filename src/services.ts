@@ -10,6 +10,7 @@ import {
   VideoProvider,
   VideoProviderAdapter,
 } from "./types";
+import { appConfig } from "./config";
 import { dashboardSeed, initialTranscript, sampleMeeting, sampleSummary } from "./mockData";
 
 const roomSlug = (value: string) =>
@@ -78,11 +79,11 @@ const providerAdapters: Record<VideoProvider, VideoProviderAdapter> = {
 };
 
 export const videoProviderService = {
-  defaultProvider: "livekit" as VideoProvider,
+  defaultProvider: appConfig.defaultProvider,
   listProviders() {
     return Object.values(providerAdapters);
   },
-  getProvider(providerId: VideoProvider = "livekit") {
+  getProvider(providerId: VideoProvider = appConfig.defaultProvider) {
     return providerAdapters[providerId];
   },
   async issueToken(providerId: VideoProvider, roomName: string, identity: string) {
@@ -128,7 +129,7 @@ export const summaryService = {
 export const pdfService = {
   async exportSummary(summaryId: string) {
     // Replace with PDF generation/download backend.
-    return Promise.resolve({ url: `/api/pdf/${summaryId}` });
+    return Promise.resolve({ url: `${appConfig.pdfEndpoint}/${summaryId}` });
   },
 };
 
@@ -146,7 +147,7 @@ export const meetingService = {
       ...sampleMeeting(),
       id: slug,
       roomName: draft.roomInput || "Instant Meeting",
-      inviteLink: `https://meet.nilaa.app/room/${slug}`,
+      inviteLink: `${appConfig.publicAppUrl.replace(/\/$/, "")}/room/${slug}`,
       accessMode: draft.accessMode,
       kind: isAuth ? "authenticated" : "guest",
       durationLimitSec: isAuth ? 15 * 60 : 5 * 60,

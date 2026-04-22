@@ -57,11 +57,32 @@ Mobile-first video meeting MVP for Cambodia and Southeast Asia, designed with a 
 - This folder is ready to initialize as a Git repository and push to GitHub.
 - A GitHub Pages workflow is included at `.github/workflows/deploy-pages.yml`.
 - `vite.config.ts` uses `base: "./"` so the static build can work on GitHub Pages without a hard-coded repo name.
+- `vercel.json` is included for straightforward Vercel import and deployment.
 - If you want, the next safe step is:
   - create the repo locally
   - add a remote
   - make the first commit
   - push to GitHub Pages, Vercel, or Netlify from the GitHub repo
+
+## Vercel setup
+
+1. Import the GitHub repo into Vercel.
+2. Keep the detected framework as `Vite`.
+3. Leave the build command as `npm run build`.
+4. Leave the output directory as `dist`.
+5. Add the environment variables from `.env.example`.
+
+Recommended first variables:
+
+- `VITE_APP_NAME=Nilaa Meet`
+- `VITE_DEFAULT_VIDEO_PROVIDER=livekit`
+- `VITE_DEFAULT_LOCALE=km`
+- `VITE_PUBLIC_APP_URL=https://your-project-name.vercel.app`
+
+Notes:
+
+- The current prototype is fully static and does not require a backend to render the demo.
+- The API-related environment variables are placeholders for the next phase when real video, transcript, summary, and PDF services are connected.
 
 ## Notes
 
