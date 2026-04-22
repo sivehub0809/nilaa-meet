@@ -11,7 +11,7 @@ import {
   VideoProviderAdapter,
 } from "./types";
 import { appConfig } from "./config";
-import { dashboardSeed, initialTranscript, sampleMeeting, sampleSummary } from "./mockData";
+import { dashboardSeed, initialTranscript, sampleSummary } from "./mockData";
 
 const ROOM_STORAGE_KEY = "nilaa-meet-rooms";
 
@@ -34,6 +34,12 @@ const getPublicOrigin = () => {
   return appConfig.publicAppUrl.replace(/\/$/, "");
 };
 
+const sanitizeRoom = (meeting: MeetingSession): MeetingSession => ({
+  ...meeting,
+  participants: meeting.participants.filter((participant) => !["p2", "p3"].includes(participant.id)),
+  joinRequests: meeting.joinRequests.filter((request) => request.id !== "jr1"),
+});
+
 const readRoomStore = (): Record<string, MeetingSession> => {
   if (typeof window === "undefined") {
     return {};
@@ -45,7 +51,10 @@ const readRoomStore = (): Record<string, MeetingSession> => {
   }
 
   try {
-    return JSON.parse(raw) as Record<string, MeetingSession>;
+    const parsed = JSON.parse(raw) as Record<string, MeetingSession>;
+    return Object.fromEntries(
+      Object.entries(parsed).map(([key, value]) => [key, sanitizeRoom(value)]),
+    );
   } catch {
     return {};
   }
@@ -205,7 +214,6 @@ export const meetingService = {
 
     const isAuth = user.isAuthenticated;
     const meeting = {
-      ...sampleMeeting(),
       id: slug,
       roomName: draft.roomInput || "Instant Meeting",
       inviteLink: `${getPublicOrigin()}?room=${slug}`,
@@ -229,6 +237,9 @@ export const meetingService = {
       joinRequests: [],
       networkMode: "stable",
       panelTab: "chat",
+      translationEnabled: true,
+      transcriptEnabled: true,
+      recordingActive: true,
       summary: undefined,
       provider: providerId,
     };

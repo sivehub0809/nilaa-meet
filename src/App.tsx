@@ -259,6 +259,7 @@ export function App() {
         index === 0 ? { ...participant, audioEnabled: !participant.audioEnabled } : participant,
       ),
     }));
+    setToast({ title: "Mic updated", message: "Your microphone state changed." });
   }
 
   function toggleHostVideo() {
@@ -268,6 +269,7 @@ export function App() {
         index === 0 ? { ...participant, videoEnabled: !participant.videoEnabled } : participant,
       ),
     }));
+    setToast({ title: "Camera updated", message: "Your camera state changed." });
   }
 
   function toggleScreenShare() {
@@ -277,6 +279,7 @@ export function App() {
         index === 0 ? { ...participant, screenSharing: !participant.screenSharing } : participant,
       ),
     }));
+    setToast({ title: "Screen share toggled", message: "Prototype state updated." });
   }
 
   function toggleTranslation() {
@@ -285,6 +288,7 @@ export function App() {
       translationEnabled: !current.translationEnabled,
       panelTab: "translation",
     }));
+    setToast({ title: "Translation toggled", message: "Panel switched to translated transcript." });
   }
 
   function copyInviteLink() {
