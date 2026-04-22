@@ -13,13 +13,62 @@ import {
 import { appConfig } from "./config";
 import { dashboardSeed, initialTranscript, sampleMeeting, sampleSummary } from "./mockData";
 
-const roomSlug = (value: string) =>
-  value
+const ROOM_STORAGE_KEY = "nilaa-meet-rooms";
+
+const roomSlug = (value: string) => {
+  const normalized = value
     .trim()
     .toLowerCase()
     .replace(/https?:\/\/[^/]+\/room\//, "")
+    .replace(/^.*[?&]room=/, "")
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "") || "nilaa-room";
+    .replace(/^-|-$/g, "");
+
+  return normalized || `nilaa-room-${Math.random().toString(36).slice(2, 8)}`;
+};
+
+const getPublicOrigin = () => {
+  if (typeof window !== "undefined" && window.location.origin) {
+    return window.location.origin;
+  }
+  return appConfig.publicAppUrl.replace(/\/$/, "");
+};
+
+const readRoomStore = (): Record<string, MeetingSession> => {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  const raw = window.localStorage.getItem(ROOM_STORAGE_KEY);
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(raw) as Record<string, MeetingSession>;
+  } catch {
+    return {};
+  }
+};
+
+const writeRoomStore = (store: Record<string, MeetingSession>) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(ROOM_STORAGE_KEY, JSON.stringify(store));
+};
+
+const saveRoom = (meeting: MeetingSession) => {
+  const store = readRoomStore();
+  store[meeting.id] = meeting;
+  writeRoomStore(store);
+  return meeting;
+};
+
+const loadRoom = (roomInput: string) => {
+  const roomId = roomSlug(roomInput);
+  return readRoomStore()[roomId] ?? null;
+};
 
 const providerAdapters: Record<VideoProvider, VideoProviderAdapter> = {
   livekit: {
@@ -134,6 +183,18 @@ export const pdfService = {
 };
 
 export const meetingService = {
+  parseRoomInput(input: string) {
+    return roomSlug(input);
+  },
+
+  getRoom(roomInput: string) {
+    return loadRoom(roomInput);
+  },
+
+  syncRoom(meeting: MeetingSession) {
+    return saveRoom(meeting);
+  },
+
   async createMeeting(
     draft: MeetingDraft,
     user: UserProfile,
@@ -143,15 +204,15 @@ export const meetingService = {
     await videoProviderService.issueToken(providerId, slug, user.name);
 
     const isAuth = user.isAuthenticated;
-    return {
+    const meeting = {
       ...sampleMeeting(),
       id: slug,
       roomName: draft.roomInput || "Instant Meeting",
-      inviteLink: `${appConfig.publicAppUrl.replace(/\/$/, "")}/room/${slug}`,
+      inviteLink: `${getPublicOrigin()}?room=${slug}`,
       accessMode: draft.accessMode,
       kind: isAuth ? "authenticated" : "guest",
       durationLimitSec: isAuth ? 15 * 60 : 5 * 60,
-      elapsedSec: isAuth ? 14 * 60 : 4 * 60,
+      elapsedSec: 0,
       participants: [
         {
           id: user.id,
@@ -164,10 +225,15 @@ export const meetingService = {
           quality: "HD",
           connection: "good",
         },
-        ...sampleMeeting().participants.filter((participant) => !participant.isHost).slice(0, isAuth ? 2 : 1),
       ],
+      joinRequests: [],
+      networkMode: "stable",
+      panelTab: "chat",
+      summary: undefined,
       provider: providerId,
     };
+
+    return saveRoom(meeting);
   },
 
   async joinMeeting(
@@ -175,40 +241,70 @@ export const meetingService = {
     accessMode: AccessMode,
     user: Pick<UserProfile, "id" | "name" | "role" | "isAuthenticated">,
     providerId: VideoProvider = videoProviderService.defaultProvider,
-  ): Promise<{ status: "joined" | "waiting"; meeting: MeetingSession; isFull?: boolean }> {
+  ): Promise<{ status: "joined" | "waiting"; meeting: MeetingSession | null; isFull?: boolean; error?: "not_found" | "ended" }> {
     const roomName = roomSlug(roomInput);
-    const meeting = {
-      ...sampleMeeting(),
-      id: roomName,
-      roomName: roomInput || "Nilaa Room",
-      accessMode,
-      provider: providerId,
-    };
+    const meeting = loadRoom(roomName);
+
+    if (!meeting) {
+      return Promise.resolve({
+        status: "joined",
+        meeting: null,
+        error: "not_found",
+      });
+    }
 
     if (meeting.kind === "authenticated" && meeting.participants.length >= 3) {
       return Promise.resolve({
-        status: accessMode === "approval" ? "waiting" : "joined",
+        status: meeting.accessMode === "approval" ? "waiting" : "joined",
         meeting,
         isFull: true,
       });
     }
 
-    meeting.participants = [
-      ...meeting.participants,
-      {
-        id: user.id,
-        name: user.name,
-        role: user.role,
-        videoEnabled: true,
-        audioEnabled: true,
-        quality: "360p",
-        connection: "good",
-      },
-    ];
+    if (meeting.accessMode === "approval") {
+      const updated = saveRoom({
+        ...meeting,
+        joinRequests: meeting.joinRequests.some((request) => request.id === user.id)
+          ? meeting.joinRequests
+          : [
+              ...meeting.joinRequests,
+              {
+                id: user.id,
+                name: user.name,
+                role: user.role,
+                requestedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              },
+            ],
+      });
+
+      return Promise.resolve({
+        status: "waiting",
+        meeting: updated,
+        isFull: false,
+      });
+    }
+
+    const updated = saveRoom({
+      ...meeting,
+      participants: meeting.participants.some((participant) => participant.id === user.id)
+        ? meeting.participants
+        : [
+            ...meeting.participants,
+            {
+              id: user.id,
+              name: user.name,
+              role: user.role,
+              videoEnabled: true,
+              audioEnabled: true,
+              quality: "360p",
+              connection: "good",
+            },
+          ],
+    });
 
     return Promise.resolve({
-      status: accessMode === "approval" ? "waiting" : "joined",
-      meeting,
+      status: "joined",
+      meeting: updated,
       isFull: false,
     });
   },

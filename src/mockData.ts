@@ -34,8 +34,8 @@ export const initialTranscript: TranscriptLine[] = [
 ];
 
 export const initialChat: ChatMessage[] = [
-  { id: "c1", sender: "Nilaa Bot", text: "Meeting notes will appear here.", time: "09:00" },
-  { id: "c2", sender: "Mina", text: "Please check the updated lesson outline.", time: "09:03" },
+  { id: "c1", sender: "Mina", text: "Please check the updated lesson outline.", time: "09:03" },
+  { id: "c2", sender: "Dara", text: "I joined from mobile and it feels stable.", time: "09:04" },
 ];
 
 export const sampleSummary = (title: string): MeetingSummary => ({

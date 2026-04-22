@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { appConfig } from "./config";
 import { copy, detectInitialLocale } from "./i18n";
-import { AppTopBar, DashboardScreen, MeetingRoom, MeetingSetupCard, SummaryScreen } from "./components";
+import { DashboardScreen, LandingScreen, MeetingRoom, MeetingSetupCard, SummaryScreen, AppTopBar } from "./components";
 import { initialChat, initialTranscript } from "./mockData";
 import {
   authService,
@@ -12,15 +11,7 @@ import {
   translationService,
   videoProviderService,
 } from "./services";
-import {
-  AuthMethod,
-  DashboardData,
-  MeetingDraft,
-  MeetingSession,
-  Screen,
-  UserProfile,
-  VideoProvider,
-} from "./types";
+import { AuthMethod, DashboardData, MeetingDraft, MeetingSession, Screen, UserProfile, VideoProvider } from "./types";
 
 const defaultProfile = (locale: UserProfile["locale"]): UserProfile => ({
   id: "guest-user",
@@ -49,9 +40,11 @@ export function App() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [provider, setProvider] = useState<VideoProvider>(videoProviderService.defaultProvider);
+  const [toast, setToast] = useState<{ title: string; message?: string } | null>(null);
 
   const t = copy[locale];
   const availableProviders = videoProviderService.listProviders();
+  const activeProvider = availableProviders.find((item) => item.id === provider);
 
   useEffect(() => {
     window.localStorage.setItem("nilaa-locale", locale);
@@ -67,6 +60,32 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get("room");
+    if (!roomParam) {
+      return;
+    }
+
+    const storedRoom = meetingService.getRoom(roomParam);
+    setDraft((current) => ({ ...current, roomInput: roomParam }));
+
+    if (storedRoom) {
+      setScreen("meetingSetup");
+    } else {
+      setErrorKey("roomNotFound");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!toast) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setToast(null), 2600);
+    return () => window.clearTimeout(timeout);
+  }, [toast]);
+
+  useEffect(() => {
     if (!session || screen !== "meeting") {
       return;
     }
@@ -76,6 +95,7 @@ export function App() {
         if (!current) {
           return current;
         }
+
         const nextElapsed = current.elapsedSec + 1;
         if (nextElapsed >= current.durationLimitSec) {
           void handleMeetingEnd(current);
@@ -101,6 +121,32 @@ export function App() {
     return () => window.clearInterval(interval);
   }, [screen, session]);
 
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+
+    meetingService.syncRoom(session);
+    const nextUrl = `${window.location.pathname}?room=${session.id}`;
+    window.history.replaceState({}, "", nextUrl);
+  }, [session]);
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || !event.key.includes("nilaa-meet-rooms") || !session) {
+        return;
+      }
+
+      const nextRoom = meetingService.getRoom(session.id);
+      if (nextRoom) {
+        setSession(nextRoom);
+      }
+    };
+
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [session]);
+
   const summary = session?.summary;
   const transcript = initialTranscript;
   const chat = initialChat;
@@ -118,6 +164,10 @@ export function App() {
     return `${minutes}:${seconds}`;
   }, [session]);
 
+  function updateSession(updater: (current: MeetingSession) => MeetingSession) {
+    setSession((current) => (current ? updater(current) : current));
+  }
+
   async function handleMeetingEnd(current: MeetingSession) {
     const generated = current.summary ?? (await summaryService.generate(current.roomName));
     setSession({ ...current, summary: generated });
@@ -128,6 +178,7 @@ export function App() {
     const user = await authService.authenticate(method, locale);
     setProfile(user);
     setScreen("landing");
+    setToast({ title: "Account ready", message: "Longer meetings and dashboard unlocked." });
   }
 
   async function openDashboard() {
@@ -154,6 +205,7 @@ export function App() {
     setSession(created);
     setGuestMeetingsUsed((count) => (activeUser.isAuthenticated ? count : count + 1));
     setScreen("meeting");
+    setErrorKey(null);
   }
 
   async function joinMeeting() {
@@ -176,6 +228,10 @@ export function App() {
     }
 
     const result = await meetingService.joinMeeting(draft.roomInput, accessMode, joiningUser, provider);
+    if (result.error === "not_found" || !result.meeting) {
+      setErrorKey("roomNotFound");
+      return;
+    }
     if (result.isFull) {
       setErrorKey("fullMeeting");
       return;
@@ -193,91 +249,134 @@ export function App() {
     setDownloadBusy(true);
     await pdfService.exportSummary(summary.id);
     setDownloadBusy(false);
+    setToast({ title: "PDF requested", message: "Hook the PDF endpoint next to make downloads real." });
+  }
+
+  function toggleHostAudio() {
+    updateSession((current) => ({
+      ...current,
+      participants: current.participants.map((participant, index) =>
+        index === 0 ? { ...participant, audioEnabled: !participant.audioEnabled } : participant,
+      ),
+    }));
+  }
+
+  function toggleHostVideo() {
+    updateSession((current) => ({
+      ...current,
+      participants: current.participants.map((participant, index) =>
+        index === 0 ? { ...participant, videoEnabled: !participant.videoEnabled } : participant,
+      ),
+    }));
+  }
+
+  function toggleScreenShare() {
+    updateSession((current) => ({
+      ...current,
+      participants: current.participants.map((participant, index) =>
+        index === 0 ? { ...participant, screenSharing: !participant.screenSharing } : participant,
+      ),
+    }));
+  }
+
+  function toggleTranslation() {
+    updateSession((current) => ({
+      ...current,
+      translationEnabled: !current.translationEnabled,
+      panelTab: "translation",
+    }));
+  }
+
+  function copyInviteLink() {
+    if (!session?.inviteLink) {
+      return;
+    }
+
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(session.inviteLink);
+    }
+
+    setToast({ title: "Invite link copied", message: session.inviteLink });
+  }
+
+  function acceptJoinRequest(requestId: string) {
+    updateSession((current) => {
+      const request = current.joinRequests.find((item) => item.id === requestId);
+      if (!request) {
+        return current;
+      }
+
+      if (current.kind === "authenticated" && current.participants.length >= 3) {
+        setErrorKey("fullMeeting");
+        return current;
+      }
+
+      setToast({ title: `${request.name} joined`, message: request.role });
+      return {
+        ...current,
+        joinRequests: current.joinRequests.filter((item) => item.id !== requestId),
+        participants: [
+          ...current.participants,
+          {
+            id: request.id,
+            name: request.name,
+            role: request.role,
+            videoEnabled: true,
+            audioEnabled: true,
+            quality: "360p",
+            connection: "good",
+          },
+        ],
+      };
+    });
+  }
+
+  function rejectJoinRequest(requestId: string) {
+    updateSession((current) => ({
+      ...current,
+      joinRequests: current.joinRequests.filter((item) => item.id !== requestId),
+    }));
   }
 
   return (
     <div className="app-shell">
       <div className="ambient ambient-left" />
       <div className="ambient ambient-right" />
+
       <AppTopBar
         locale={locale}
-        onGoHome={() => setScreen("landing")}
+        isAuthenticated={profile.isAuthenticated}
+        onGoHome={() => {
+          setScreen("landing");
+          window.history.replaceState({}, "", window.location.pathname);
+        }}
         onOpenAuth={() => setScreen("auth")}
+        onOpenDashboard={openDashboard}
         onToggleLocale={() => setLocale(locale === "en" ? "km" : "en")}
       />
 
       {screen === "landing" && (
-        <main className="landing-layout">
-          <section className="hero-card">
-            <div className="section-kicker">{appConfig.appName}</div>
-            <h1>{t.headline}</h1>
-            <p>{t.support}</p>
-            <div className="hero-actions">
-              <button
-                className="primary-button"
-                onClick={() => {
-                  setJoinMode("create");
-                  setScreen("meetingSetup");
-                }}
-              >
-                {t.startInstantMeeting}
-              </button>
-              <button
-                className="secondary-button"
-                onClick={() => {
-                  setJoinMode("join");
-                  setScreen("meetingSetup");
-                }}
-              >
-                {t.joinMeeting}
-              </button>
-            </div>
-            <label className="field">
-              <span>{t.roomName}</span>
-              <input
-                value={draft.roomInput}
-                onChange={(event) => setDraft({ ...draft, roomInput: event.target.value })}
-                placeholder={t.roomPlaceholder}
-              />
-            </label>
-            <div className="hero-mini-actions">
-              <button className="secondary-button" onClick={joinMeeting}>
-                {t.joinMeeting}
-              </button>
-              <button className="ghost-button" onClick={openDashboard}>
-                {t.hostDashboard}
-              </button>
-            </div>
-            <div className="provider-row">
-              {availableProviders.map((item) => (
-                <button
-                  key={item.id}
-                  className={provider === item.id ? "choice active" : "choice"}
-                  onClick={() => setProvider(item.id)}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <div className="trust-row">
-              <span>{t.noSettings}</span>
-              <span>{appConfig.appName} · {t.providerNote}</span>
-            </div>
-          </section>
-
-          <section className="side-stack">
-            <article className="status-card">
-              <div className="section-kicker">Access rules</div>
-              <h3>Guest: 2 meetings x 5 min</h3>
-              <p>Auth: 15 min, up to 3 joined participants, dashboard history, summaries.</p>
-            </article>
-            <article className="status-card">
-              <div className="section-kicker">Provider ready</div>
-              <h3>{availableProviders.find((item) => item.id === provider)?.label}</h3>
-              <p>{availableProviders.find((item) => item.id === provider)?.description}</p>
-            </article>
-          </section>
-        </main>
+        <LandingScreen
+          locale={locale}
+          roomInput={draft.roomInput}
+          providerLabel={activeProvider?.label ?? provider}
+          providerDescription={activeProvider?.description ?? ""}
+          onRoomInputChange={(value) => setDraft({ ...draft, roomInput: value })}
+          onStart={() => {
+            setJoinMode("create");
+            setScreen("meetingSetup");
+            window.history.replaceState({}, "", window.location.pathname);
+          }}
+          onJoin={() => {
+            if (draft.roomInput.trim()) {
+              void joinMeeting();
+              return;
+            }
+            setJoinMode("join");
+            setScreen("meetingSetup");
+          }}
+          onOpenDashboard={openDashboard}
+        />
       )}
 
       {screen === "meetingSetup" && (
@@ -305,7 +404,7 @@ export function App() {
               <span>{draft.role || "Participant"}</span>
             </div>
             <button className="secondary-button" onClick={() => setScreen("landing")}>
-              {t.joinMeeting}
+              Back home
             </button>
           </section>
         </main>
@@ -321,15 +420,22 @@ export function App() {
           statusText={statusText}
           onEndMeeting={() => void handleMeetingEnd(session)}
           onPanelTabChange={(tab) => setSession({ ...session, panelTab: tab })}
+          onToggleMic={toggleHostAudio}
+          onToggleCamera={toggleHostVideo}
+          onToggleShare={toggleScreenShare}
+          onToggleTranslation={toggleTranslation}
+          onCopyInvite={copyInviteLink}
+          onAcceptRequest={acceptJoinRequest}
+          onRejectRequest={rejectJoinRequest}
         />
       )}
 
       {screen === "auth" && (
         <main className="center-layout">
-          <section className="sheet">
+          <section className="sheet setup-sheet">
             <div className="section-kicker">{t.guestLimitReached}</div>
             <h2>{t.authTitle}</h2>
-            <p>{guestMeetingsUsed >= 2 ? t.createFreeAccount : t.authSupport}</p>
+            <p className="support-copy">{guestMeetingsUsed >= 2 ? t.createFreeAccount : t.authSupport}</p>
             <div className="auth-stack">
               {([
                 ["google", t.google],
@@ -342,8 +448,10 @@ export function App() {
                 </button>
               ))}
             </div>
-            <div className="inline-note">
-              <span>{t.guestUpgradeSupport}</span>
+            <div className="info-strip">
+              <span>Longer meetings</span>
+              <span>Dashboard access</span>
+              <span>Post-meeting summaries</span>
             </div>
           </section>
         </main>
@@ -392,10 +500,10 @@ export function App() {
         />
       )}
 
-      {errorKey && (
+      {(errorKey || toast) && (
         <div className="toast error-toast">
-          <strong>{t[errorKey]}</strong>
-          {errorKey === "fullMeeting" && <span>{t.freeLimit}</span>}
+          <strong>{toast ? toast.title : errorKey ? t[errorKey] : ""}</strong>
+          <span>{toast ? toast.message : errorKey === "fullMeeting" ? t.freeLimit : ""}</span>
         </div>
       )}
     </div>
